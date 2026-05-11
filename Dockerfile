@@ -6,16 +6,18 @@ EXPOSE 8081
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copy only .csproj files first — restore layer is cached until dependencies change
-COPY ["SocialMedia.Api.csproj", "SocialMedia.Api/"]
-COPY ["SocialMedia.Application.csproj", "SocialMedia.Application/"]
-COPY ["SocialMedia.Domain.csproj", "SocialMedia.Domain/"]
-COPY ["SocialMedia.Infrastructure.csproj", "SocialMedia.Infrastructure/"]
+# Copy the project files from their folders
+COPY ["SocialMedia.Api/SocialMedia.Api.csproj", "SocialMedia.Api/"]
+COPY ["SocialMedia.Application/SocialMedia.Application.csproj", "SocialMedia.Application/"]
+COPY ["SocialMedia.Domain/SocialMedia.Domain.csproj", "SocialMedia.Domain/"]
+COPY ["SocialMedia.Infrastructure/SocialMedia.Infrastructure.csproj", "SocialMedia.Infrastructure/"]
 
-RUN dotnet restore "./SocialMedia.Api/SocialMedia.Api.csproj"
+# Restore using the path to the API project
+RUN dotnet restore "SocialMedia.Api/SocialMedia.Api.csproj"
 
-# Copy everything else — source changes do not bust the restore cache above
+# Copy the rest of the source code
 COPY . .
+
 
 WORKDIR "/src/SocialMedia.Api"
 RUN dotnet build "SocialMedia.Api.csproj" -c Release -o /app/build
