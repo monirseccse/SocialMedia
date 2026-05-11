@@ -7,10 +7,10 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
 # Copy only .csproj files first — restore layer is cached until dependencies change
-COPY ["SocialMedia.Api/SocialMedia.Api.csproj", "SocialMedia.Api/"]
-COPY ["SocialMedia.Application/SocialMedia.Application.csproj", "SocialMedia.Application/"]
-COPY ["SocialMedia.Domain/SocialMedia.Domain.csproj", "SocialMedia.Domain/"]
-COPY ["SocialMedia.Infrastructure/SocialMedia.Infrastructure.csproj", "SocialMedia.Infrastructure/"]
+COPY ["SocialMedia.Api.csproj", "SocialMedia.Api/"]
+COPY ["SocialMedia.Application.csproj", "SocialMedia.Application/"]
+COPY ["SocialMedia.Domain.csproj", "SocialMedia.Domain/"]
+COPY ["SocialMedia.Infrastructure.csproj", "SocialMedia.Infrastructure/"]
 
 RUN dotnet restore "./SocialMedia.Api/SocialMedia.Api.csproj"
 
