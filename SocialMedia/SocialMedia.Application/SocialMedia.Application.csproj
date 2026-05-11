@@ -14,4 +14,8 @@
     <ProjectReference Include="..\SocialMedia.Domain\SocialMedia.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Services\Cache\" />
+  </ItemGroup>
+
 </Project>
