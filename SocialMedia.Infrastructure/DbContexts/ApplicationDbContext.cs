@@ -23,6 +23,9 @@ namespace SocialMedia.Infrastructure.DbContexts
                 .HasIndex(l => new { l.UserId, l.TargetId, l.TargetType })
                 .IsUnique();
 
+            modelBuilder.Entity<Like>()
+                .HasIndex(l => l.UpdatedAt);
+
             modelBuilder.Entity<Post>()
                 .HasIndex(p => new { p.Visibility, p.CreatedAt, p.Id });
 

@@ -1,6 +1,9 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using SocialMedia.Application.Services.Interfaces.Common;
 using SocialMedia.Application.Services.Interfaces.Services;
+using SocialMedia.Application.Settings;
 using SocialMedia.Domain.Enums;
 using SocialMedia.Infrastructure.DbContexts;
 
@@ -8,14 +11,22 @@ namespace SocialMedia.Infrastructure.Backgroudjobs
 {
     public class FeedSyncJob : IFeedSyncJob
     {
+        private const string FeedCachePrefix = "feed:public:";
+
         private readonly ApplicationDbContext _context;
+        private readonly ICacheService _cacheService;
+        private readonly FeedSyncSettings _settings;
         private readonly ILogger<IFeedSyncJob> _logger;
 
         public FeedSyncJob(
             ApplicationDbContext context,
+            ICacheService cacheService,
+            IOptions<FeedSyncSettings> settings,
             ILogger<IFeedSyncJob> logger)
         {
             _context = context;
+            _cacheService = cacheService;
+            _settings = settings.Value;
             _logger = logger;
         }
 
@@ -23,8 +34,11 @@ namespace SocialMedia.Infrastructure.Backgroudjobs
         {
             try
             {
-                await SyncLikeCountsAsync();
-                await SyncCommentCountsAsync();
+                var likesDirty = await SyncLikeCountsAsync();
+                var commentsDirty = await SyncCommentCountsAsync();
+
+                if (likesDirty || commentsDirty)
+                    await _cacheService.RemoveByPrefixAsync(FeedCachePrefix);
             }
             catch (Exception ex)
             {
@@ -33,28 +47,26 @@ namespace SocialMedia.Infrastructure.Backgroudjobs
             }
         }
 
-        private async Task SyncLikeCountsAsync()
+        private async Task<bool> SyncLikeCountsAsync()
         {
+            var cutoff = DateTime.UtcNow.AddSeconds(-_settings.CutoffSeconds);
+
             var dirtyTargets = await _context.Likes
-                .Where(l => l.CreatedAt >= DateTime.UtcNow.AddSeconds(-25))
+                .Where(l => l.UpdatedAt >= cutoff)
                 .GroupBy(l => new { l.TargetId, l.TargetType })
-                .Select(g => new
-                {
-                    g.Key.TargetId,
-                    g.Key.TargetType
-                })
+                .Select(g => new { g.Key.TargetId, g.Key.TargetType })
                 .ToListAsync();
 
-            if (!dirtyTargets.Any()) return;
+            if (dirtyTargets.Count == 0) return false;
 
-            _logger.LogInformation(
-                "Syncing like counts for {Count} targets", dirtyTargets.Count);
+            _logger.LogInformation("Syncing like counts for {Count} targets", dirtyTargets.Count);
 
             foreach (var target in dirtyTargets)
             {
                 var count = await _context.Likes
                     .Where(l => l.TargetId == target.TargetId &&
-                                l.TargetType == target.TargetType)
+                                l.TargetType == target.TargetType &&
+                                l.DeletedAt == null)
                     .CountAsync();
 
                 if (target.TargetType == LikeTargetType.Post)
@@ -72,9 +84,11 @@ namespace SocialMedia.Infrastructure.Backgroudjobs
                             s.SetProperty(c => c.LikeCount, count));
                 }
             }
+
+            return true;
         }
 
-        private async Task SyncCommentCountsAsync()
+        private async Task<bool> SyncCommentCountsAsync()
         {
             var dirtyPostIds = await _context.Comments
                 .Where(c => c.CreatedAt >= DateTime.UtcNow.AddSeconds(-25))
@@ -82,10 +96,9 @@ namespace SocialMedia.Infrastructure.Backgroudjobs
                 .Distinct()
                 .ToListAsync();
 
-            if (!dirtyPostIds.Any()) return;
+            if (dirtyPostIds.Count == 0) return false;
 
-            _logger.LogInformation(
-                "Syncing comment counts for {Count} posts", dirtyPostIds.Count);
+            _logger.LogInformation("Syncing comment counts for {Count} posts", dirtyPostIds.Count);
 
             foreach (var postId in dirtyPostIds)
             {
@@ -98,6 +111,8 @@ namespace SocialMedia.Infrastructure.Backgroudjobs
                     .ExecuteUpdateAsync(s =>
                         s.SetProperty(p => p.CommentCount, count));
             }
+
+            return true;
         }
     }
 }

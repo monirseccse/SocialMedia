@@ -11,5 +11,8 @@ namespace SocialMedia.Infrastructure.Repositories
         public PostReadRepository(ReadOnlyDbContext db) : base(db) { }
 
         public IQueryable<Post> GetFeedQuery() => _db.Posts.AsNoTracking();
+
+        public IQueryable<Post> GetUserPostsQuery(long userId) =>
+            _db.Posts.AsNoTracking().Where(p => p.AuthorId == userId);
     }
 }

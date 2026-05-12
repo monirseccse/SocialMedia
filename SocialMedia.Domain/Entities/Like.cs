@@ -11,5 +11,7 @@ namespace SocialMedia.Domain.Entities
         public bool TargetsPost => TargetType == LikeTargetType.Post;
         public bool TargetsComment => TargetType == LikeTargetType.Comment;
         public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+        public DateTime? DeletedAt { get; set; }
     }
 }

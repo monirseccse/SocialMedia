@@ -122,8 +122,9 @@ namespace SocialMedia.Application.Services.Implementations
 
             if (existingLike != null)
             {
-                _likeRepo.Delete(existingLike);
-                await _likeRepo.SaveChangesAsync();
+                existingLike.DeletedAt = existingLike.DeletedAt == null ? DateTime.UtcNow : null;
+                existingLike.UpdatedAt = DateTime.UtcNow;
+                _likeRepo.Update(existingLike);
             }
             else
             {
@@ -132,10 +133,12 @@ namespace SocialMedia.Application.Services.Implementations
                     UserId = userId,
                     TargetId = request.TargetId,
                     TargetType = request.Type,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
                 });
-                await _likeRepo.SaveChangesAsync();
             }
+
+            await _likeRepo.SaveChangesAsync();
         }
 
         public async Task AddCommentAsync(long userId, CreateCommentRequest request)

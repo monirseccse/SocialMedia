@@ -16,6 +16,7 @@ namespace SocialMedia.Infrastructure.Repositories
 
         public async Task<Like?> GetLikeAsync(long userId, LikeRequest request)
         {
+            // Returns any row including soft-deleted so ToggleLikeAsync can restore it.
             return await _db.Likes
                 .FirstOrDefaultAsync(l =>
                     l.UserId == userId &&
@@ -27,7 +28,7 @@ namespace SocialMedia.Infrastructure.Repositories
         {
             var query = _db.Likes
                 .AsNoTracking()
-                .Where(l => l.TargetId == targetId && l.TargetType == type);
+                .Where(l => l.TargetId == targetId && l.TargetType == type && l.DeletedAt == null);
 
             if (cursor.HasValue)
                 query = query.Where(l => l.CreatedAt > cursor.Value);
@@ -44,7 +45,7 @@ namespace SocialMedia.Infrastructure.Repositories
             var ids = targetIds.ToList();
             var liked = await _db.Likes
                 .AsNoTracking()
-                .Where(l => l.UserId == userId && l.TargetType == type && ids.Contains(l.TargetId))
+                .Where(l => l.UserId == userId && l.TargetType == type && l.DeletedAt == null && ids.Contains(l.TargetId))
                 .Select(l => l.TargetId)
                 .ToListAsync();
             return liked.ToHashSet();

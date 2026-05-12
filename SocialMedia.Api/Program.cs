@@ -44,6 +44,7 @@ builder.Services.AddStackExchangeRedisCache(options =>
 
 builder.Services.AddSingleton<ICacheService, CacheService>();
 builder.Services.Configure<CacheSettings>(builder.Configuration.GetSection("CacheSettings"));
+builder.Services.Configure<FeedSyncSettings>(builder.Configuration.GetSection("FeedSyncSettings"));
 
 // ── Database ───────────────────────────────────────────────────────────────────
 

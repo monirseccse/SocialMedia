@@ -18,7 +18,11 @@ namespace SocialMedia.Api.Extensions
                     .UseRecommendedSerializerSettings()
                     .UsePostgreSqlStorage(options =>
                         options.UseNpgsqlConnection(
-                            configuration.GetConnectionString("DefaultConnection"))));
+                            configuration.GetConnectionString("DefaultConnection")),
+                        new PostgreSqlStorageOptions
+                        {
+                            DistributedLockTimeout = TimeSpan.FromSeconds(30)
+                        }));
 
                 services.AddHangfireServer(options =>
                 {
