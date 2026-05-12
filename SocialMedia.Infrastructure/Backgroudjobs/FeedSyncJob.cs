@@ -36,9 +36,6 @@ namespace SocialMedia.Infrastructure.Backgroudjobs
             {
                 var likesDirty = await SyncLikeCountsAsync();
                 var commentsDirty = await SyncCommentCountsAsync();
-
-                if (likesDirty || commentsDirty)
-                    await _cacheService.RemoveByPrefixAsync(FeedCachePrefix);
             }
             catch (Exception ex)
             {
