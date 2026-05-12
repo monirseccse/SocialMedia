@@ -18,13 +18,33 @@ namespace SocialMedia.Infrastructure.DbContexts
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
-            modelBuilder.Entity<Like>()
-               .HasIndex(l => new { l.UserId, l.TargetId, l.TargetType })
-               .IsUnique();
 
-            
+            modelBuilder.Entity<Like>()
+                .HasIndex(l => new { l.UserId, l.TargetId, l.TargetType })
+                .IsUnique();
+
+            modelBuilder.Entity<Like>()
+                .HasIndex(l => l.UpdatedAt);
+
             modelBuilder.Entity<Post>()
-                .HasIndex(p => new { p.Visibility, p.CreatedAt });
+                .HasIndex(p => new { p.Visibility, p.CreatedAt, p.Id });
+
+            modelBuilder.Entity<Post>()
+                .HasIndex(p => new { p.AuthorId, p.CreatedAt });
+
+            modelBuilder.Entity<Comment>()
+                .HasIndex(c => new { c.PostId, c.CreatedAt });
+
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.Email)
+                .IsUnique();
+
+            modelBuilder.Entity<RefreshToken>()
+                .HasIndex(r => r.Token)
+                .IsUnique();
+
+            modelBuilder.Entity<RefreshToken>()
+                .HasIndex(r => r.UserId);
         }
     }
 }
