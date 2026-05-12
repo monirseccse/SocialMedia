@@ -21,17 +21,5 @@ namespace SocialMedia.Infrastructure.Repositories
         {
             return _db.Posts.AsNoTracking();
         }
-
-        public async Task IncrementCommentCountAsync(Guid postId, int value)
-        {
-            await _db.Posts.Where(p => p.Id == postId)
-                .ExecuteUpdateAsync(s => s.SetProperty(p => p.CommentCount, p => p.CommentCount + value));
-        }
-
-        public async Task IncrementLikeCountAsync(Guid postId, int value)
-        {
-            await _db.Posts.Where(p => p.Id == postId)
-                .ExecuteUpdateAsync(s => s.SetProperty(p => p.LikeCount, p => p.LikeCount + value));
-        }
     }
 }

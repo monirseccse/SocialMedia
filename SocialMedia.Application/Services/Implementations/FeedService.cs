@@ -10,7 +10,6 @@ namespace SocialMedia.Application.Services.Implementations
 {
     public class FeedService : IFeedService
     {
-        private readonly IPostRepository _postRepo;
         private readonly ILikeRepository _likeRepo;
         private readonly ICommentRepository _commentRepo;
         private readonly IPostReadRepository _postReadRepo;
@@ -18,14 +17,12 @@ namespace SocialMedia.Application.Services.Implementations
         private readonly ICommentReadRepository _commentReadRepo;
 
         public FeedService(
-            IPostRepository postRepo,
             ILikeRepository likeRepo,
             ICommentRepository commentRepo,
             IPostReadRepository postReadRepo,
             ILikeReadRepository likeReadRepo,
             ICommentReadRepository commentReadRepo)
         {
-            _postRepo = postRepo;
             _likeRepo = likeRepo;
             _commentRepo = commentRepo;
             _postReadRepo = postReadRepo;
@@ -97,7 +94,6 @@ namespace SocialMedia.Application.Services.Implementations
             {
                 _likeRepo.Delete(existingLike);
                 await _likeRepo.SaveChangesAsync();
-                await DecrementLikeCounter(request.TargetId, request.Type);
             }
             else
             {
@@ -109,7 +105,6 @@ namespace SocialMedia.Application.Services.Implementations
                     CreatedAt = DateTime.UtcNow
                 });
                 await _likeRepo.SaveChangesAsync();
-                await IncrementLikeCounter(request.TargetId, request.Type);
             }
         }
 
@@ -126,7 +121,6 @@ namespace SocialMedia.Application.Services.Implementations
                     CreatedAt = DateTime.UtcNow
                 });
                 await _commentRepo.SaveChangesAsync();
-                await _postRepo.IncrementCommentCountAsync(request.PostId, 1);
             }
             catch (Exception ex)
             {
@@ -213,22 +207,6 @@ namespace SocialMedia.Application.Services.Implementations
                 HasNextPage = hasNextPage,
                 NextCursor = hasNextPage ? data.Last().LikedAt : null
             };
-        }
-
-        private async Task IncrementLikeCounter(Guid id, LikeTargetType type)
-        {
-            if (type == LikeTargetType.Post)
-                await _postRepo.IncrementLikeCountAsync(id, 1);
-            else
-                await _commentRepo.IncrementLikeCountAsync(id, 1);
-        }
-
-        private async Task DecrementLikeCounter(Guid id, LikeTargetType type)
-        {
-            if (type == LikeTargetType.Post)
-                await _postRepo.IncrementLikeCountAsync(id, -1);
-            else
-                await _commentRepo.IncrementLikeCountAsync(id, -1);
         }
     }
 }
