@@ -1,8 +1,12 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using SocialMedia.Application.ClientModels.RequestModel;
 using SocialMedia.Application.ClientModels.ResponseModel;
+using SocialMedia.Application.Services.Interfaces.Common;
 using SocialMedia.Application.Services.Interfaces.Repositories;
 using SocialMedia.Application.Services.Interfaces.Services;
+using SocialMedia.Application.Settings;
 using SocialMedia.Domain.Entities;
 using SocialMedia.Domain.Enums;
 
@@ -15,75 +19,101 @@ namespace SocialMedia.Application.Services.Implementations
         private readonly IPostReadRepository _postReadRepo;
         private readonly ILikeReadRepository _likeReadRepo;
         private readonly ICommentReadRepository _commentReadRepo;
+        private readonly ICacheService _cacheService;
+        private readonly CacheSettings _cacheSettings;
+        private readonly ILogger<FeedService> _logger;
 
         public FeedService(
             ILikeRepository likeRepo,
             ICommentRepository commentRepo,
             IPostReadRepository postReadRepo,
             ILikeReadRepository likeReadRepo,
-            ICommentReadRepository commentReadRepo)
+            ICommentReadRepository commentReadRepo,
+            ICacheService cacheService,
+            IOptions<CacheSettings> cacheSettings,
+            ILogger<FeedService> logger)
         {
             _likeRepo = likeRepo;
             _commentRepo = commentRepo;
             _postReadRepo = postReadRepo;
             _likeReadRepo = likeReadRepo;
             _commentReadRepo = commentReadRepo;
+            _cacheService = cacheService;
+            _cacheSettings = cacheSettings.Value;
+            _logger = logger;
         }
 
         public async Task<CursorPagedResponse<PostResponse>> GetFeedAsync(long userId, FeedRequest request)
         {
             request.Limit = Math.Clamp(request.Limit, 1, 50);
 
-            var query = _postReadRepo.GetFeedQuery()
-                .Where(p => p.Visibility == PostVisibility.Public || p.AuthorId == userId);
+            var cursorPart = request.Cursor.HasValue ? request.Cursor.Value.Ticks.ToString() : "first";
+            var cacheKey = $"feed:public:{cursorPart}:{request.Limit}";
+            var ttl = TimeSpan.FromMinutes(_cacheSettings.FeedPublicPostsTtlMinutes);
 
-            if (request.Cursor.HasValue)
-                query = query.Where(p => p.CreatedAt < request.Cursor.Value);
+            var page = await _cacheService.GetAsync<CursorPagedResponse<PostResponse>>(cacheKey);
 
-            var rawPosts = await query
-                .OrderByDescending(p => p.CreatedAt)
-                .ThenByDescending(p => p.Id)
-                .Take(request.Limit + 1)
-                .Select(p => new
+            if (page is null)
+            {
+                _logger.LogDebug("Cache miss for key {CacheKey}, querying database", cacheKey);
+                var query = _postReadRepo.GetFeedQuery()
+                    .Where(p => p.Visibility == PostVisibility.Public);
+
+                if (request.Cursor.HasValue)
+                    query = query.Where(p => p.CreatedAt < request.Cursor.Value);
+
+                var rawPosts = await query
+                    .OrderByDescending(p => p.CreatedAt)
+                    .ThenByDescending(p => p.Id)
+                    .Take(request.Limit + 1)
+                    .Select(p => new
+                    {
+                        p.Id,
+                        p.AuthorId,
+                        p.Content,
+                        ImageUrl = p.ImageKey,
+                        AuthorName = p.Author.FirstName + " " + p.Author.LastName,
+                        p.LikeCount,
+                        p.CommentCount,
+                        p.Visibility,
+                        p.CreatedAt
+                    })
+                    .ToListAsync();
+
+                var hasNextPage = rawPosts.Count > request.Limit;
+                var posts = rawPosts.Take(request.Limit).ToList();
+
+                var data = posts.Select(p => new PostResponse
                 {
-                    p.Id,
-                    p.AuthorId,
-                    p.Content,
-                    ImageUrl = p.ImageKey,
-                    AuthorName = p.Author.FirstName + " " + p.Author.LastName,
-                    p.LikeCount,
-                    p.CommentCount,
-                    p.Visibility,
-                    p.CreatedAt
-                })
-                .ToListAsync();
+                    Id = p.Id,
+                    AuthorId = p.AuthorId,
+                    AuthorName = p.AuthorName,
+                    Content = p.Content,
+                    ImageUrl = p.ImageUrl,
+                    Visibility = p.Visibility,
+                    LikeCount = p.LikeCount,
+                    CommentCount = p.CommentCount,
+                    IsLikedByMe = false,
+                    CreatedAt = p.CreatedAt
+                }).ToList();
 
-            var hasNextPage = rawPosts.Count > request.Limit;
-            var page = rawPosts.Take(request.Limit).ToList();
+                page = new CursorPagedResponse<PostResponse>
+                {
+                    Data = data,
+                    HasNextPage = hasNextPage,
+                    NextCursor = hasNextPage ? data.Last().CreatedAt : null
+                };
 
-            var postIds = page.Select(p => p.Id).ToList();
+                await _cacheService.SetAsync(cacheKey, page, ttl);
+            }
+
+            var postIds = page.Data.Select(p => p.Id).ToList();
             var likedIds = await _likeReadRepo.GetLikedTargetIdsAsync(userId, postIds, LikeTargetType.Post);
 
-            var data = page.Select(p => new PostResponse
-            {
-                Id = p.Id,
-                AuthorId = p.AuthorId,
-                AuthorName = p.AuthorName,
-                Content = p.Content,
-                ImageUrl = p.ImageUrl,
-                Visibility = p.Visibility,
-                LikeCount = p.LikeCount,
-                CommentCount = p.CommentCount,
-                IsLikedByMe = likedIds.Contains(p.Id),
-                CreatedAt = p.CreatedAt
-            }).ToList();
+            foreach (var post in page.Data)
+                post.IsLikedByMe = likedIds.Contains(post.Id);
 
-            return new CursorPagedResponse<PostResponse>
-            {
-                Data = data,
-                HasNextPage = hasNextPage,
-                NextCursor = hasNextPage ? data.Last().CreatedAt : null
-            };
+            return page;
         }
 
         public async Task ToggleLikeAsync(long userId, LikeRequest request)
@@ -110,22 +140,17 @@ namespace SocialMedia.Application.Services.Implementations
 
         public async Task AddCommentAsync(long userId, CreateCommentRequest request)
         {
-            try
+            _logger.LogInformation("User {UserId} adding comment to post {PostId}", userId, request.PostId);
+
+            _commentRepo.Add(new Comment
             {
-                _commentRepo.Add(new Comment
-                {
-                    PostId = request.PostId,
-                    AuthorId = userId,
-                    Content = request.Content,
-                    ParentCommentId = request.ParentCommentId,
-                    CreatedAt = DateTime.UtcNow
-                });
-                await _commentRepo.SaveChangesAsync();
-            }
-            catch (Exception ex)
-            {
-                throw;
-            }
+                PostId = request.PostId,
+                AuthorId = userId,
+                Content = request.Content,
+                ParentCommentId = request.ParentCommentId,
+                CreatedAt = DateTime.UtcNow
+            });
+            await _commentRepo.SaveChangesAsync();
         }
 
         public async Task<CursorPagedResponse<CommentResponse>> GetCommentsAsync(long userId, Guid postId, FeedRequest request)

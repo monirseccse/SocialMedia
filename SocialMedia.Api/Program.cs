@@ -2,10 +2,14 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Serilog;
+using SocialMedia.Api.Extensions;
+using SocialMedia.Api.Middleware;
 using SocialMedia.Application.Services.Implementations;
 using SocialMedia.Application.Services.Interfaces.Common;
 using SocialMedia.Application.Services.Interfaces.Repositories;
 using SocialMedia.Application.Services.Interfaces.Services;
+using SocialMedia.Application.Settings;
 using SocialMedia.Infrastructure.Common;
 using SocialMedia.Infrastructure.DbContexts;
 using SocialMedia.Infrastructure.Repositories;
@@ -14,7 +18,16 @@ using SocialMedia.Infrastructure.Services;
 using StackExchange.Redis;
 using System.Text;
 
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .CreateBootstrapLogger();
+
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((context, services, configuration) =>
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services));
 
 // ── Redis Cache ────────────────────────────────────────────────────────────────
 
@@ -30,6 +43,7 @@ builder.Services.AddStackExchangeRedisCache(options =>
 });
 
 builder.Services.AddSingleton<ICacheService, CacheService>();
+builder.Services.Configure<CacheSettings>(builder.Configuration.GetSection("CacheSettings"));
 
 // ── Database ───────────────────────────────────────────────────────────────────
 
@@ -90,6 +104,9 @@ builder.Services.AddScoped<IFileService, CloudinaryService>();
 // Service Registration
 builder.Services.AddScoped<IPostService, PostService>();
 builder.Services.AddScoped<IFeedService, FeedService>();
+
+// ── Hangfire ───────────────────────────────────────────────────────────────────
+builder.Services.AddHangfireServices(builder.Configuration);
 // ── Controllers & Swagger ──────────────────────────────────────────────────────
 
 builder.Services.AddControllers();
@@ -151,6 +168,10 @@ builder.Services.AddCors(options =>
 // ── App pipeline ───────────────────────────────────────────────────────────────
 
 var app = builder.Build();
+
+app.UseMiddleware<GlobalExceptionMiddleware>();
+app.UseSerilogRequestLogging();
+
 app.UseSwagger();
 app.UseSwaggerUI(options =>
 {
@@ -164,6 +185,18 @@ if (!app.Environment.IsDevelopment())
 }
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseHangfireServices();
 app.MapControllers();
 
-await app.RunAsync();
+try
+{
+    await app.RunAsync();
+}
+catch (Exception ex) when (ex is not HostAbortedException)
+{
+    Log.Fatal(ex, "Application terminated unexpectedly");
+}
+finally
+{
+    await Log.CloseAndFlushAsync();
+}
