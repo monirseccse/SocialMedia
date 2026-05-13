@@ -11,5 +11,6 @@ namespace SocialMedia.Application.Services.Interfaces.Services
         Task ToggleLikeAsync(long userId, LikeRequest request);
         Task<CursorPagedResponse<LikerResponse>> GetLikersAsync(Guid targetId, LikeTargetType type, FeedRequest request);
         Task<CursorPagedResponse<CommentResponse>> GetCommentsAsync(long userId, Guid postId, FeedRequest request);
+        Task<CursorPagedResponse<CommentResponse>> GetRepliesAsync(long userId, Guid commentId, FeedRequest request);
     }
 }

@@ -11,6 +11,7 @@ namespace SocialMedia.Domain.Entities
         public Guid? ParentCommentId { get; set; }
         public string Content { get; set; } = string.Empty;
         public int LikeCount { get; set; } = 0;
+        public int ReplyCount { get; set; } = 0;
         public Post Post { get; set; } = null!;
         public User Author { get; set; } = null!;
         public Comment? ParentComment { get; set; }

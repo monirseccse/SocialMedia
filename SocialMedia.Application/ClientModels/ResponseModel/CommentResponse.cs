@@ -7,6 +7,7 @@
         public string AuthorName { get; set; } = string.Empty;
         public string Content { get; set; } = string.Empty;
         public int LikeCount { get; set; }
+        public int ReplyCount { get; set; }
         public bool IsLikedByMe { get; set; }
         public bool IsReply { get; set; }
         public DateTime CreatedAt { get; set; }

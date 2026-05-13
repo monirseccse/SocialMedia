@@ -191,6 +191,9 @@ namespace SocialMedia.Application.Services.Implementations
                 CreatedAt = DateTime.UtcNow
             });
             await _commentRepo.SaveChangesAsync();
+
+            if (request.ParentCommentId.HasValue)
+                await _commentRepo.IncrementReplyCountAsync(request.ParentCommentId.Value, 1);
         }
 
         public async Task<CursorPagedResponse<CommentResponse>> GetCommentsAsync(long userId, Guid postId, FeedRequest request)
@@ -203,15 +206,44 @@ namespace SocialMedia.Application.Services.Implementations
 
             var rawComments = await query
                 .OrderBy(c => c.CreatedAt)
+                .ThenBy(c => c.Id)
                 .Take(request.Limit + 1)
                 .ToListAsync();
 
             var hasNextPage = rawComments.Count > request.Limit;
             var page = rawComments.Take(request.Limit).ToList();
 
-            var allIds = page
-                .SelectMany(c => new[] { c.Id }.Concat(c.Replies.Select(r => r.Id)))
-                .ToList();
+            var allIds = page.Select(c => c.Id).ToList();
+            var likedIds = await _likeReadRepo.GetLikedTargetIdsAsync(userId, allIds, LikeTargetType.Comment);
+
+            var data = page.Select(c => MapComment(c, likedIds)).ToList();
+
+            return new CursorPagedResponse<CommentResponse>
+            {
+                Data = data,
+                HasNextPage = hasNextPage,
+                NextCursor = hasNextPage ? data.Last().CreatedAt : null
+            };
+        }
+
+        public async Task<CursorPagedResponse<CommentResponse>> GetRepliesAsync(long userId, Guid commentId, FeedRequest request)
+        {
+            request.Limit = Math.Clamp(request.Limit, 1, 50);
+
+            var query = _commentReadRepo.GetRepliesQuery(commentId);
+            if (request.Cursor.HasValue)
+                query = query.Where(c => c.CreatedAt > request.Cursor.Value);
+
+            var rawReplies = await query
+                .OrderBy(c => c.CreatedAt)
+                .ThenBy(c => c.Id)
+                .Take(request.Limit + 1)
+                .ToListAsync();
+
+            var hasNextPage = rawReplies.Count > request.Limit;
+            var page = rawReplies.Take(request.Limit).ToList();
+
+            var allIds = page.Select(c => c.Id).ToList();
             var likedIds = await _likeReadRepo.GetLikedTargetIdsAsync(userId, allIds, LikeTargetType.Comment);
 
             var data = page.Select(c => MapComment(c, likedIds)).ToList();
@@ -231,23 +263,11 @@ namespace SocialMedia.Application.Services.Implementations
             AuthorName = $"{c.Author.FirstName} {c.Author.LastName}",
             Content = c.Content,
             LikeCount = c.LikeCount,
+            ReplyCount = c.ReplyCount,
             IsLikedByMe = likedIds.Contains(c.Id),
             IsReply = c.IsReply,
             CreatedAt = c.CreatedAt,
-            Replies = c.Replies
-                .OrderBy(r => r.CreatedAt)
-                .Select(r => new CommentResponse
-                {
-                    Id = r.Id,
-                    ParentCommentId = r.ParentCommentId,
-                    AuthorName = $"{r.Author.FirstName} {r.Author.LastName}",
-                    Content = r.Content,
-                    LikeCount = r.LikeCount,
-                    IsLikedByMe = likedIds.Contains(r.Id),
-                    IsReply = r.IsReply,
-                    CreatedAt = r.CreatedAt,
-                    Replies = new()
-                }).ToList()
+            Replies = []
         };
 
         public async Task<CursorPagedResponse<LikerResponse>> GetLikersAsync(Guid targetId, LikeTargetType type, FeedRequest request)

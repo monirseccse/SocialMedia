@@ -17,9 +17,15 @@ namespace SocialMedia.Infrastructure.Repositories
             return _db.Comments
                 .AsNoTracking()
                 .Where(c => c.PostId == postId && c.ParentCommentId == null)
-                .Include(c => c.Author)
-                .Include(c => c.Replies)
-                    .ThenInclude(r => r.Author);
+                .Include(c => c.Author);
+        }
+
+        public IQueryable<Comment> GetRepliesQuery(Guid parentCommentId)
+        {
+            return _db.Comments
+                .AsNoTracking()
+                .Where(c => c.ParentCommentId == parentCommentId)
+                .Include(c => c.Author);
         }
     }
 }

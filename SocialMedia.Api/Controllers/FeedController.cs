@@ -65,6 +65,18 @@ namespace SocialMedia.Api.Controllers
             return Ok(result);
         }
 
+        [HttpGet("comments/{commentId}/replies")]
+        public async Task<ActionResult<CursorPagedResponse<CommentResponse>>> GetReplies(
+            Guid commentId, [FromQuery] FeedRequest request)
+        {
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!long.TryParse(userIdClaim, out long userId))
+                return Unauthorized();
+
+            var result = await _feedService.GetRepliesAsync(userId, commentId, request);
+            return Ok(result);
+        }
+
         [HttpGet("{targetId}/likers")]
         public async Task<ActionResult<CursorPagedResponse<LikerResponse>>> GetLikers(
             Guid targetId, [FromQuery] LikeTargetType type, [FromQuery] FeedRequest request)

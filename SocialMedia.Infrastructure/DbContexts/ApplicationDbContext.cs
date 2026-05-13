@@ -33,7 +33,13 @@ namespace SocialMedia.Infrastructure.DbContexts
                 .HasIndex(p => new { p.AuthorId, p.CreatedAt });
 
             modelBuilder.Entity<Comment>()
-                .HasIndex(c => new { c.PostId, c.CreatedAt });
+                .HasIndex(c => new { c.PostId, c.CreatedAt, c.Id })
+                .HasFilter("\"ParentCommentId\" IS NULL")
+                .HasDatabaseName("IX_Comments_PostId_CreatedAt_Id");
+
+            modelBuilder.Entity<Comment>()
+                .HasIndex(c => new { c.ParentCommentId, c.CreatedAt, c.Id })
+                .HasDatabaseName("IX_Comments_ParentCommentId_CreatedAt_Id");
 
             modelBuilder.Entity<User>()
                 .HasIndex(u => u.Email)

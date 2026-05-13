@@ -7,5 +7,6 @@ namespace SocialMedia.Application.Services.Interfaces.Repositories
     {
         IQueryable<Comment> GetCommentsQuery();
         IQueryable<Comment> GetTopLevelCommentsQuery(Guid postId);
+        IQueryable<Comment> GetRepliesQuery(Guid parentCommentId);
     }
 }

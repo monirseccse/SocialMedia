@@ -32,5 +32,15 @@ namespace SocialMedia.Infrastructure.Repositories
                     c => c.LikeCount + value
                 ));
         }
+
+        public async Task IncrementReplyCountAsync(Guid commentId, int value)
+        {
+            await _db.Comments
+                .Where(c => c.Id == commentId)
+                .ExecuteUpdateAsync(s => s.SetProperty(
+                    c => c.ReplyCount,
+                    c => c.ReplyCount + value
+                ));
+        }
     }
 }
