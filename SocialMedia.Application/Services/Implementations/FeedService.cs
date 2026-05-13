@@ -49,11 +49,8 @@ namespace SocialMedia.Application.Services.Implementations
 
             var cursorPart = request.Cursor.HasValue ? request.Cursor.Value.Ticks.ToString() : "first";
 
-            var publicTask = GetPublicPostsAsync(request, cursorPart);
-            var privateTask = GetPrivatePostsAsync(userId, request, cursorPart);
-            await Task.WhenAll(publicTask, privateTask);
-            var publicRaw = publicTask.Result;
-            var privateRaw = privateTask.Result;
+            var publicRaw = await GetPublicPostsAsync(request, cursorPart);
+            var privateRaw = await GetPrivatePostsAsync(userId, request, cursorPart);
 
             // Merge and take limit+1 to detect hasNextPage without loading excess items
             var merged = publicRaw.Concat(privateRaw)
