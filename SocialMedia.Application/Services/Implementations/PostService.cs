@@ -1,5 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SocialMedia.Application.ClientModels.ResponseModel;
@@ -15,7 +14,8 @@ namespace SocialMedia.Application.Services.Implementations
 {
     public class PostService : IPostService
     {
-        private const string FeedCachePrefix = "feed:public:";
+        private const string FeedPublicCachePrefix = "feed:public:";
+        private const string FeedPrivateCachePrefix = "feed:private:";
         private const int WarmUpLimit = 20;
 
         private readonly IPostRepository _postRepo;
@@ -71,6 +71,8 @@ namespace SocialMedia.Application.Services.Implementations
 
             if (post.Visibility == PostVisibility.Public)
                 await InvalidateAndWarmFeedCacheAsync();
+            else if (post.Visibility == PostVisibility.Private)
+                await _cacheService.RemoveByPrefixAsync($"{FeedPrivateCachePrefix}{userId}:");
 
             return post;
         }
@@ -132,53 +134,31 @@ namespace SocialMedia.Application.Services.Implementations
 
         private async Task InvalidateAndWarmFeedCacheAsync()
         {
-            await _cacheService.RemoveByPrefixAsync(FeedCachePrefix);
+            await _cacheService.RemoveByPrefixAsync(FeedPublicCachePrefix);
 
-            var rawPosts = await _postReadRepo.GetFeedQuery()
+            // Pre-warm first page as List<PostResponse> with limit+1 items, matching FeedService cache format
+            var posts = await _postReadRepo.GetFeedQuery()
                 .Where(p => p.Visibility == PostVisibility.Public)
                 .OrderByDescending(p => p.CreatedAt)
                 .ThenByDescending(p => p.Id)
                 .Take(WarmUpLimit + 1)
-                .Select(p => new
+                .Select(p => new PostResponse
                 {
-                    p.Id,
-                    p.AuthorId,
-                    p.Content,
-                    ImageUrl = p.ImageKey,
+                    Id = p.Id,
+                    AuthorId = p.AuthorId,
                     AuthorName = p.Author.FirstName + " " + p.Author.LastName,
-                    p.LikeCount,
-                    p.CommentCount,
-                    p.Visibility,
-                    p.CreatedAt
+                    Content = p.Content,
+                    ImageUrl = p.ImageKey,
+                    Visibility = p.Visibility,
+                    LikeCount = p.LikeCount,
+                    CommentCount = p.CommentCount,
+                    IsLikedByMe = false,
+                    CreatedAt = p.CreatedAt
                 })
                 .ToListAsync();
 
-            var hasNextPage = rawPosts.Count > WarmUpLimit;
-            var posts = rawPosts.Take(WarmUpLimit).ToList();
-
-            var data = posts.Select(p => new PostResponse
-            {
-                Id = p.Id,
-                AuthorId = p.AuthorId,
-                AuthorName = p.AuthorName,
-                Content = p.Content,
-                ImageUrl = p.ImageUrl,
-                Visibility = p.Visibility,
-                LikeCount = p.LikeCount,
-                CommentCount = p.CommentCount,
-                IsLikedByMe = false,
-                CreatedAt = p.CreatedAt
-            }).ToList();
-
-            var page = new CursorPagedResponse<PostResponse>
-            {
-                Data = data,
-                HasNextPage = hasNextPage,
-                NextCursor = hasNextPage ? data.Last().CreatedAt : null
-            };
-
-            var cacheKey = $"{FeedCachePrefix}first:{WarmUpLimit}";
-            await _cacheService.SetAsync(cacheKey, page, TimeSpan.FromMinutes(_cacheSettings.FeedPublicPostsTtlMinutes));
+            var cacheKey = $"{FeedPublicCachePrefix}first:{WarmUpLimit}";
+            await _cacheService.SetAsync(cacheKey, posts, TimeSpan.FromMinutes(_cacheSettings.FeedPublicPostsTtlMinutes));
         }
     }
 }

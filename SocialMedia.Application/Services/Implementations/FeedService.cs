@@ -48,72 +48,112 @@ namespace SocialMedia.Application.Services.Implementations
             request.Limit = Math.Clamp(request.Limit, 1, 50);
 
             var cursorPart = request.Cursor.HasValue ? request.Cursor.Value.Ticks.ToString() : "first";
-            var cacheKey = $"feed:public:{cursorPart}:{request.Limit}";
-            var ttl = TimeSpan.FromMinutes(_cacheSettings.FeedPublicPostsTtlMinutes);
 
-            var page = await _cacheService.GetAsync<CursorPagedResponse<PostResponse>>(cacheKey);
+            var publicTask = GetPublicPostsAsync(request, cursorPart);
+            var privateTask = GetPrivatePostsAsync(userId, request, cursorPart);
+            await Task.WhenAll(publicTask, privateTask);
+            var publicRaw = publicTask.Result;
+            var privateRaw = privateTask.Result;
 
-            if (page is null)
+            // Merge and take limit+1 to detect hasNextPage without loading excess items
+            var merged = publicRaw.Concat(privateRaw)
+                .OrderByDescending(p => p.CreatedAt)
+                .ThenByDescending(p => p.Id)
+                .Take(request.Limit + 1)
+                .ToList();
+
+            var hasNextPage = merged.Count > request.Limit;
+            var posts = merged.Take(request.Limit).ToList();
+
+            var postIds = posts.Select(p => p.Id).ToList();
+            var likedIds = await _likeReadRepo.GetLikedTargetIdsAsync(userId, postIds, LikeTargetType.Post);
+            foreach (var post in posts)
+                post.IsLikedByMe = likedIds.Contains(post.Id);
+
+            return new CursorPagedResponse<PostResponse>
             {
-                _logger.LogDebug("Cache miss for key {CacheKey}, querying database", cacheKey);
-                var query = _postReadRepo.GetFeedQuery()
-                    .Where(p => p.Visibility == PostVisibility.Public);
+                Data = posts,
+                HasNextPage = hasNextPage,
+                NextCursor = hasNextPage ? posts.Last().CreatedAt : null
+            };
+        }
 
-                if (request.Cursor.HasValue)
-                    query = query.Where(p => p.CreatedAt < request.Cursor.Value);
+        private async Task<List<PostResponse>> GetPublicPostsAsync(FeedRequest request, string cursorPart)
+        {
+            var cacheKey = $"feed:public:{cursorPart}:{request.Limit}";
+            var cached = await _cacheService.GetAsync<List<PostResponse>>(cacheKey);
+            if (cached is not null)
+                return cached;
 
-                var rawPosts = await query
-                    .OrderByDescending(p => p.CreatedAt)
-                    .ThenByDescending(p => p.Id)
-                    .Take(request.Limit + 1)
-                    .Select(p => new
-                    {
-                        p.Id,
-                        p.AuthorId,
-                        p.Content,
-                        ImageUrl = p.ImageKey,
-                        AuthorName = p.Author.FirstName + " " + p.Author.LastName,
-                        p.LikeCount,
-                        p.CommentCount,
-                        p.Visibility,
-                        p.CreatedAt
-                    })
-                    .ToListAsync();
+            _logger.LogDebug("Cache miss for public posts {CacheKey}", cacheKey);
 
-                var hasNextPage = rawPosts.Count > request.Limit;
-                var posts = rawPosts.Take(request.Limit).ToList();
+            var query = _postReadRepo.GetFeedQuery()
+                .Where(p => p.Visibility == PostVisibility.Public);
 
-                var data = posts.Select(p => new PostResponse
+            if (request.Cursor.HasValue)
+                query = query.Where(p => p.CreatedAt < request.Cursor.Value);
+
+            var posts = await query
+                .OrderByDescending(p => p.CreatedAt)
+                .ThenByDescending(p => p.Id)
+                .Take(request.Limit + 1)
+                .Select(p => new PostResponse
                 {
                     Id = p.Id,
                     AuthorId = p.AuthorId,
-                    AuthorName = p.AuthorName,
+                    AuthorName = p.Author.FirstName + " " + p.Author.LastName,
                     Content = p.Content,
-                    ImageUrl = p.ImageUrl,
+                    ImageUrl = p.ImageKey,
                     Visibility = p.Visibility,
                     LikeCount = p.LikeCount,
                     CommentCount = p.CommentCount,
                     IsLikedByMe = false,
                     CreatedAt = p.CreatedAt
-                }).ToList();
+                })
+                .ToListAsync();
 
-                page = new CursorPagedResponse<PostResponse>
+            var ttl = TimeSpan.FromMinutes(_cacheSettings.FeedPublicPostsTtlMinutes);
+            await _cacheService.SetAsync(cacheKey, posts, ttl);
+            return posts;
+        }
+
+        private async Task<List<PostResponse>> GetPrivatePostsAsync(long userId, FeedRequest request, string cursorPart)
+        {
+            var cacheKey = $"feed:private:{userId}:{cursorPart}:{request.Limit}";
+            var cached = await _cacheService.GetAsync<List<PostResponse>>(cacheKey);
+            if (cached is not null)
+                return cached;
+
+            _logger.LogDebug("Cache miss for private posts {CacheKey}", cacheKey);
+
+            var query = _postReadRepo.GetUserPostsQuery(userId)
+                .Where(p => p.Visibility == PostVisibility.Private);
+
+            if (request.Cursor.HasValue)
+                query = query.Where(p => p.CreatedAt < request.Cursor.Value);
+
+            var posts = await query
+                .OrderByDescending(p => p.CreatedAt)
+                .ThenByDescending(p => p.Id)
+                .Take(request.Limit + 1)
+                .Select(p => new PostResponse
                 {
-                    Data = data,
-                    HasNextPage = hasNextPage,
-                    NextCursor = hasNextPage ? data.Last().CreatedAt : null
-                };
+                    Id = p.Id,
+                    AuthorId = p.AuthorId,
+                    AuthorName = p.Author.FirstName + " " + p.Author.LastName,
+                    Content = p.Content,
+                    ImageUrl = p.ImageKey,
+                    Visibility = p.Visibility,
+                    LikeCount = p.LikeCount,
+                    CommentCount = p.CommentCount,
+                    IsLikedByMe = false,
+                    CreatedAt = p.CreatedAt
+                })
+                .ToListAsync();
 
-                await _cacheService.SetAsync(cacheKey, page, ttl);
-            }
-
-            var postIds = page.Data.Select(p => p.Id).ToList();
-            var likedIds = await _likeReadRepo.GetLikedTargetIdsAsync(userId, postIds, LikeTargetType.Post);
-
-            foreach (var post in page.Data)
-                post.IsLikedByMe = likedIds.Contains(post.Id);
-
-            return page;
+            var ttl = TimeSpan.FromMinutes(_cacheSettings.FeedPrivatePostsTtlMinutes);
+            await _cacheService.SetAsync(cacheKey, posts, ttl);
+            return posts;
         }
 
         public async Task ToggleLikeAsync(long userId, LikeRequest request)
