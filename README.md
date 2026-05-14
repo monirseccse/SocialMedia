@@ -8,7 +8,7 @@ A scalable social media backend built with .NET and Clean Architecture, designed
 
 | | |
 |---|---|
-| 🎥 Video Walkthrough | [YouTube](#) |
+| 🎥 Video Walkthrough | [YouTube](https://youtu.be/PYHiAgOh7Sc) |
 | 🌐 Live Demo | [social-media-frontend-rust.vercel.app](https://social-media-frontend-rust.vercel.app) |
 | 📁 Repository | [github.com/monirseccse/SocialMedia](https://github.com/monirseccse/SocialMedia) |
 
