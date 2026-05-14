@@ -201,7 +201,7 @@ Images are uploaded to Cloudinary directly from the API. Only the Cloudinary CDN
 
 ### 10. Deployment
 
-The application is containerized with Docker and deployed on Render. All secrets (database connection strings, Redis URL, Cloudinary credentials, JWT secret) are injected as environment variables at runtime — never hardcoded or committed to the repository.
+The application is containerized with Docker and deployed on [Render](https://dashboard.render.com/). All secrets (database connection strings, Redis URL, Cloudinary credentials, JWT secret) are injected as environment variables at runtime — never hardcoded or committed to the repository.
 
 ---
 
