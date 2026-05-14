@@ -1,0 +1,164 @@
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using SocialMedia.Application.ClientModels.ResponseModel;
+using SocialMedia.Application.ClientModels.RequestModel;
+using SocialMedia.Application.Services.Interfaces.Common;
+using SocialMedia.Application.Services.Interfaces.Repositories;
+using SocialMedia.Application.Services.Interfaces.Services;
+using SocialMedia.Application.Settings;
+using SocialMedia.Domain.Entities;
+using SocialMedia.Domain.Enums;
+
+namespace SocialMedia.Application.Services.Implementations
+{
+    public class PostService : IPostService
+    {
+        private const string FeedPublicCachePrefix = "feed:public:";
+        private const string FeedPrivateCachePrefix = "feed:private:";
+        private const int WarmUpLimit = 20;
+
+        private readonly IPostRepository _postRepo;
+        private readonly IPostReadRepository _postReadRepo;
+        private readonly ILikeReadRepository _likeReadRepo;
+        private readonly IFileService _fileService;
+        private readonly ICacheService _cacheService;
+        private readonly CacheSettings _cacheSettings;
+        private readonly ILogger<PostService> _logger;
+
+        public PostService(
+            IPostRepository postRepo,
+            IPostReadRepository postReadRepo,
+            ILikeReadRepository likeReadRepo,
+            IFileService fileService,
+            ICacheService cacheService,
+            IOptions<CacheSettings> cacheSettings,
+            ILogger<PostService> logger)
+        {
+            _postRepo = postRepo;
+            _postReadRepo = postReadRepo;
+            _likeReadRepo = likeReadRepo;
+            _fileService = fileService;
+            _cacheService = cacheService;
+            _cacheSettings = cacheSettings.Value;
+            _logger = logger;
+        }
+
+        public async Task<Post> CreatePostAsync(long userId, CreatePostRequest model)
+        {
+            _logger.LogInformation("Creating post for user {UserId}", userId);
+
+            string? imageUrl = null;
+            if (model.Image != null)
+            {
+                _logger.LogInformation("Uploading image for user {UserId}", userId);
+                imageUrl = await _fileService.UploadImageAsync(model.Image);
+            }
+
+            var post = new Post
+            {
+                AuthorId = userId,
+                Content = model.Content,
+                ImageKey = imageUrl,
+                Visibility = model.Visibility,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _postRepo.Add(post);
+            await _postRepo.SaveChangesAsync();
+
+            _logger.LogInformation("Post {PostId} created for user {UserId}", post.Id, userId);
+
+            if (post.Visibility == PostVisibility.Public)
+                await InvalidateAndWarmFeedCacheAsync();
+            else if (post.Visibility == PostVisibility.Private)
+                await _cacheService.RemoveByPrefixAsync($"{FeedPrivateCachePrefix}{userId}:");
+
+            return post;
+        }
+
+        public async Task<CursorPagedResponse<PostResponse>> GetMyPostsAsync(long userId, FeedRequest request)
+        {
+            request.Limit = Math.Clamp(request.Limit, 1, 50);
+
+            var query = _postReadRepo.GetUserPostsQuery(userId);
+
+            if (request.Cursor.HasValue)
+                query = query.Where(p => p.CreatedAt < request.Cursor.Value);
+
+            var rawPosts = await query
+                .OrderByDescending(p => p.CreatedAt)
+                .ThenByDescending(p => p.Id)
+                .Take(request.Limit + 1)
+                .Select(p => new
+                {
+                    p.Id,
+                    p.AuthorId,
+                    p.Content,
+                    ImageUrl = p.ImageKey,
+                    AuthorName = p.Author.FirstName + " " + p.Author.LastName,
+                    p.LikeCount,
+                    p.CommentCount,
+                    p.Visibility,
+                    p.CreatedAt
+                })
+                .ToListAsync();
+
+            var hasNextPage = rawPosts.Count > request.Limit;
+            var posts = rawPosts.Take(request.Limit).ToList();
+
+            var postIds = posts.Select(p => p.Id).ToList();
+            var likedIds = await _likeReadRepo.GetLikedTargetIdsAsync(userId, postIds, LikeTargetType.Post);
+
+            var data = posts.Select(p => new PostResponse
+            {
+                Id = p.Id,
+                AuthorId = p.AuthorId,
+                AuthorName = p.AuthorName,
+                Content = p.Content,
+                ImageUrl = p.ImageUrl,
+                Visibility = p.Visibility,
+                LikeCount = p.LikeCount,
+                CommentCount = p.CommentCount,
+                IsLikedByMe = likedIds.Contains(p.Id),
+                CreatedAt = p.CreatedAt
+            }).ToList();
+
+            return new CursorPagedResponse<PostResponse>
+            {
+                Data = data,
+                HasNextPage = hasNextPage,
+                NextCursor = hasNextPage ? data.Last().CreatedAt : null
+            };
+        }
+
+        private async Task InvalidateAndWarmFeedCacheAsync()
+        {
+            await _cacheService.RemoveByPrefixAsync(FeedPublicCachePrefix);
+
+            // Pre-warm first page as List<PostResponse> with limit+1 items, matching FeedService cache format
+            var posts = await _postReadRepo.GetFeedQuery()
+                .Where(p => p.Visibility == PostVisibility.Public)
+                .OrderByDescending(p => p.CreatedAt)
+                .ThenByDescending(p => p.Id)
+                .Take(WarmUpLimit + 1)
+                .Select(p => new PostResponse
+                {
+                    Id = p.Id,
+                    AuthorId = p.AuthorId,
+                    AuthorName = p.Author.FirstName + " " + p.Author.LastName,
+                    Content = p.Content,
+                    ImageUrl = p.ImageKey,
+                    Visibility = p.Visibility,
+                    LikeCount = p.LikeCount,
+                    CommentCount = p.CommentCount,
+                    IsLikedByMe = false,
+                    CreatedAt = p.CreatedAt
+                })
+                .ToListAsync();
+
+            var cacheKey = $"{FeedPublicCachePrefix}first:{WarmUpLimit}";
+            await _cacheService.SetAsync(cacheKey, posts, TimeSpan.FromMinutes(_cacheSettings.FeedPublicPostsTtlMinutes));
+        }
+    }
+}
