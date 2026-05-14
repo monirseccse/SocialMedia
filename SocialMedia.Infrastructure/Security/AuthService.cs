@@ -86,11 +86,14 @@ namespace SocialMedia.Infrastructure.Security
 
         public async Task<AuthResponse> RegisterAsync(RegisterRequest model)
         {
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+
             try
             {
-                var existingUser = await _db.Users.FirstOrDefaultAsync(x => x.Email == model.Email);
+                var existingUser = await _db.Users
+                    .AnyAsync(x => x.Email == model.Email);
 
-                if (existingUser != null)
+                if (existingUser)
                     throw new Exception("Email already exists");
 
                 var user = new User
@@ -102,19 +105,28 @@ namespace SocialMedia.Infrastructure.Security
                     CreatedAt = DateTime.UtcNow
                 };
 
+                _db.Users.Add(user);
+                await _db.SaveChangesAsync();
+
                 var accessToken = _jwt.GenerateAccessToken(user);
                 var refreshToken = _jwt.GenerateRefreshToken();
 
                 user.RefreshTokens.Add(refreshToken);
 
-                _db.Users.Add(user);
                 await _db.SaveChangesAsync();
 
-                return new AuthResponse { AccessToken = accessToken, RefreshToken = refreshToken.Token, FullName = $"{user.FirstName} {user.LastName}" };
-            }
-            catch (Exception ex)
-            {
+                await transaction.CommitAsync();
 
+                return new AuthResponse
+                {
+                    AccessToken = accessToken,
+                    RefreshToken = refreshToken.Token,
+                    FullName = $"{user.FirstName} {user.LastName}"
+                };
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
                 throw;
             }
         }
