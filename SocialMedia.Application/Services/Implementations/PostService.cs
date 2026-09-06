@@ -1,8 +1,8 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using SocialMedia.Application.ClientModels.ResponseModel;
 using SocialMedia.Application.ClientModels.RequestModel;
+using SocialMedia.Application.ClientModels.ResponseModel;
 using SocialMedia.Application.Services.Interfaces.Common;
 using SocialMedia.Application.Services.Interfaces.Repositories;
 using SocialMedia.Application.Services.Interfaces.Services;
@@ -66,14 +66,6 @@ namespace SocialMedia.Application.Services.Implementations
 
             _postRepo.Add(post);
             await _postRepo.SaveChangesAsync();
-
-            _logger.LogInformation("Post {PostId} created for user {UserId}", post.Id, userId);
-
-            if (post.Visibility == PostVisibility.Public)
-                await InvalidateAndWarmFeedCacheAsync();
-            else if (post.Visibility == PostVisibility.Private)
-                await _cacheService.RemoveByPrefixAsync($"{FeedPrivateCachePrefix}{userId}:");
-
             return post;
         }
 
